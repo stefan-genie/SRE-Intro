@@ -32,7 +32,7 @@ spec:
             - name: DB_PASS
               value: quickticket
             - name: DB_MAX_CONNS
-              value: "10"
+              value: "20"
             - name: REDIS_HOST
               value: redis
             - name: REDIS_PORT
