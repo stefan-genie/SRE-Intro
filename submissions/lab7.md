@@ -151,6 +151,50 @@ strategy:
 
 ### 7.9: Rollout observation (`kubectl argo rollouts get rollout gateway --watch` snapshots)
 
+**Step 1/9 — 20% (Updated: 1):**
+
+```
+Status:          ॥ Paused
+  Step:          1/9
+  SetWeight:     20
+  ActualWeight:  20
+Replicas:
+  Updated:       1
+```
+
+**Step 3/9 — 40% (Updated: 2):**
+
+```
+Status:          ॥ Paused
+  Step:          3/9
+  SetWeight:     40
+  ActualWeight:  40
+Replicas:
+  Updated:       2
+```
+
+**Step 4/9 — 60% (Updated: 3):**
+
+```
+Status:          ◌ Progressing
+  Step:          4/9
+  SetWeight:     60
+  ActualWeight:  50
+Replicas:
+  Updated:       3
+```
+
+**Step 9/9 — 100% Healthy (Updated: 5):**
+
+```
+Status:          ✔ Healthy
+  Step:          9/9
+  SetWeight:     100
+  ActualWeight:  100
+Replicas:
+  Updated:       5
+```
+
 | Time | Step | SetWeight | Updated replicas | Status |
 |------|------|-----------|------------------|--------|
 | 22:13:37 | 1/9 | 20 | 1 | Paused |
@@ -168,15 +212,47 @@ strategy:
 
 ## Bonus Task — Automated Canary Analysis
 
-### B.1–B.2: In-cluster Prometheus + AnalysisTemplate
+### B.1: In-cluster Prometheus — gateway targets with `rs_hash`
+
+```
+$ kubectl port-forward -n monitoring svc/prometheus 9091:9090 &
+$ curl -s 'http://localhost:9091/api/v1/targets?state=active' | python3 -c "..."
+gateway-64d757878-vm7lm rs= 64d757878 up
+gateway-64d757878-fzl2j rs= 64d757878 up
+gateway-64d757878-wqv45 rs= 64d757878 up
+gateway-64d757878-m57tk rs= 64d757878 up
+gateway-64d757878-86cj4 rs= 64d757878 up
+```
+
+All 5 gateway pods discovered with `health=up` and `rs_hash` from `rollouts-pod-template-hash`.
+
+### B.2: AnalysisTemplate installed
 
 ```
 $ kubectl get analysistemplate gateway-error-rate
 NAME                 AGE
-gateway-error-rate   12m
+gateway-error-rate   39m
 ```
 
-All 5 gateway pods scraped with `rs_hash` label from `rollouts-pod-template-hash`.
+### B.3: Analysis wired into Rollout strategy (`k8s/gateway.yaml`)
+
+```yaml
+strategy:
+  canary:
+    steps:
+      - setWeight: 20
+      - pause: {duration: 20s}
+      - analysis:
+          templates:
+            - templateName: gateway-error-rate
+          args:
+            - name: canary-hash
+              valueFrom:
+                podTemplateHashValue: Latest
+      - setWeight: 50
+      - pause: {duration: 20s}
+      - setWeight: 100
+```
 
 ### B.4: Good version — auto-promote
 
@@ -219,13 +295,36 @@ status:
 Rollout after auto-abort:
 
 ```
+Name:            gateway
+Namespace:       default
 Status:          ✖ Degraded
 Message:         RolloutAborted: Rollout aborted update to revision 10: Step-based analysis phase error/failed: Metric "error-rate" assessed Failed due to failed (2) > failureLimit (1)
+Strategy:        Canary
+  Step:          0/6
+  SetWeight:     0
+  ActualWeight:  0
+Images:          ghcr.io/stefan-genie/quickticket-gateway:... (stable)
 Replicas:
+  Desired:       5
   Updated:       0
+  Ready:         5
+  Available:     5
+
+NAME                                 KIND         STATUS        INFO
+⟳ gateway                            Rollout      ✖ Degraded
+├──# revision:10
+│  ├──⧉ gateway-66879cdc59           ReplicaSet   • ScaledDown  canary
+│  └──α gateway-66879cdc59-10-2      AnalysisRun  ✖ Failed      ✖ 2
+├──# revision:7
+│  ├──⧉ gateway-564c8d7d88           ReplicaSet   stable
+│  │  ├──□ gateway-564c8d7d88-fkp6s  Pod          ✔ Running     ready:1/1
+│  │  ├──□ gateway-564c8d7d88-jfl2d  Pod          ✔ Running     ready:1/1
+│  │  ├──□ gateway-564c8d7d88-vnsgz  Pod          ✔ Running     ready:1/1
+│  │  └──□ gateway-564c8d7d88-n8dtv  Pod          ✔ Running     ready:1/1
+│  └──α gateway-564c8d7d88-7-2       AnalysisRun  ✔ Successful  ✔ 3
 ```
 
-Stable pods untouched; canary scaled down automatically.
+Stable pods untouched; canary scaled down automatically. Reverted `EVENTS_URL` and ran `kubectl argo rollouts retry rollout gateway` to restore Healthy.
 
 ### B.6: What metric beyond error rate?
 
