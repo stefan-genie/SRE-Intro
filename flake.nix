@@ -17,6 +17,7 @@
             k3d
             kubectl
             argocd
+            lsof
           ];
 
           shellHook = ''
