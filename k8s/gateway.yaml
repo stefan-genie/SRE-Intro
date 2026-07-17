@@ -35,7 +35,7 @@ spec:
         - name: ghcr-secret
       containers:
         - name: gateway
-          image: ghcr.io/stefan-genie/quickticket-gateway:76bdb0c915ec6d112c6e6279a4d66d32bd5138a6
+          image: ghcr.io/stefan-genie/quickticket-gateway:ee981aaa48494208de8152465dcd0612d64dddb6
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
