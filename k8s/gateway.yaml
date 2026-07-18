@@ -31,6 +31,15 @@ spec:
       labels:
         app: gateway
     spec:
+      # Give in-flight requests time to finish after SIGTERM (10s preStop + up to 30s drain).
+      terminationGracePeriodSeconds: 40
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: gateway
       imagePullSecrets:
         - name: ghcr-secret
       containers:
@@ -50,6 +59,15 @@ spec:
               value: "5000"
             - name: APP_VERSION
               value: "v2-multistep"
+          lifecycle:
+            # Sleep BEFORE SIGTERM reaches the app. Gives kube-proxy / endpoints
+            # controllers time to propagate this pod's NotReady state to every
+            # node's iptables, so new traffic stops routing here BEFORE uvicorn
+            # shuts down. Without this, there's a ~5-10s window where SIGTERM
+            # + incoming traffic overlap and requests get RST.
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
           livenessProbe:
             httpGet:
               path: /health
@@ -61,8 +79,8 @@ spec:
             httpGet:
               path: /health
               port: 8080
-            periodSeconds: 5
-            failureThreshold: 2
+            periodSeconds: 2
+            failureThreshold: 1
           resources:
             requests:
               cpu: 50m
